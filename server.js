@@ -206,7 +206,7 @@ async function extractTextFromFile(file) {
 // 调用DeepSeek API进行审查
 async function performReview(req) {
     // 添加这一行标识当前代码版本
-    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.3 - Vercel增强版');
+    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.3.2 - 增强型错误处理');
     
     try {
         console.log('开始文件审查过程');
@@ -331,25 +331,50 @@ ${fileContent}`;
             const startTime = Date.now();
             response = await axios.post(apiUrl, requestBody, { 
                 headers,
-                timeout: 120000,
-                validateStatus: null,
-                transformResponse: [(data, headers) => {
-                    const contentType = headers['content-type'] || '';
-                    if (!contentType.includes('application/json')) {
-                        throw new Error(`非预期的响应类型: ${contentType}`);
-                    }
-                    try {
-                        return JSON.parse(data);
-                    } catch (e) {
-                        throw new Error(`响应解析失败: ${data.substring(0, 100)}`);
-                    }
-                }]
+                timeout: 180000, // 增加到3分钟
+                maxContentLength: 50 * 1024 * 1024, // 增加到50MB
+                maxBodyLength: 50 * 1024 * 1024, // 增加到50MB
+                validateStatus: function (status) {
+                    // 允许处理所有状态码
+                    return true;
+                }
             });
             const endTime = Date.now();
             
             console.log(`API响应时间: ${endTime - startTime}ms`);
             console.log('API响应状态:', response.status);
             console.log('API响应内容类型:', response.headers['content-type']);
+            
+            // 检查状态码，如果不是2xx，抛出异常
+            if (response.status < 200 || response.status >= 300) {
+                let errorMessage = `API返回了错误状态码: ${response.status}`;
+                
+                // 尝试解析响应内容获取更多错误信息
+                if (response.data) {
+                    if (typeof response.data === 'string') {
+                        // 截取前200个字符以避免日志过长
+                        errorMessage += ` - ${response.data.substring(0, 200)}`;
+                    } else if (typeof response.data === 'object') {
+                        errorMessage += ` - ${JSON.stringify(response.data).substring(0, 200)}`;
+                    }
+                }
+                
+                throw new Error(errorMessage);
+            }
+            
+            // 检查内容类型
+            const contentType = response.headers['content-type'] || '';
+            if (!contentType.includes('application/json')) {
+                console.error('非预期的响应类型:', contentType);
+                console.error('响应内容预览:', typeof response.data === 'string' ? response.data.substring(0, 200) : '非文本内容');
+                throw new Error(`API返回了非JSON格式: ${contentType}`);
+            }
+            
+            // 确保响应包含所需字段
+            if (!response.data || !response.data.choices || !response.data.choices[0] || !response.data.choices[0].message) {
+                console.error('无效的API响应格式:', response.data);
+                throw new Error('API返回了无效的响应格式');
+            }
         } catch (error) {
             // 处理请求错误
             console.error('请求API时发生错误:', error.message);
@@ -375,8 +400,14 @@ ${fileContent}`;
                     status: error.response.status,
                     statusText: error.response.statusText,
                     headers: error.response.headers,
-                    data: error.response.data
                 });
+                
+                // 记录响应内容，可能是HTML或其他格式
+                if (typeof error.response.data === 'string') {
+                    console.error('响应内容预览:', error.response.data.substring(0, 500));
+                } else if (typeof error.response.data === 'object' && error.response.data !== null) {
+                    console.error('响应对象:', JSON.stringify(error.response.data).substring(0, 500));
+                }
                 
                 // 格式化错误消息
                 detailedError += `: ${error.response.status} - `;
@@ -399,36 +430,6 @@ ${fileContent}`;
             }
             
             throw new Error(detailedError);
-        }
-        
-        // 检查响应状态
-        if (!response || response.status !== 200) {
-            // 记录详细错误信息
-            console.error('API响应错误:', {
-                status: response ? response.status : 'unknown',
-                statusText: response ? response.statusText : 'unknown',
-                data: response ? response.data : 'no response'
-            });
-            
-            // 格式化错误消息
-            let errorMsg = `API错误: ${response ? response.status : 'unknown'}`;
-            
-            // 尝试从响应中提取错误信息
-            if (response && response.data) {
-                if (typeof response.data === 'string') {
-                    errorMsg += ' - ' + response.data.substring(0, 100);
-                } else if (typeof response.data === 'object') {
-                    errorMsg += ' - ' + (response.data.error || response.data.message || JSON.stringify(response.data).substring(0, 100));
-                }
-            }
-            
-            throw new Error(errorMsg);
-        }
-        
-        // 确保响应包含所需字段
-        if (!response.data || !response.data.choices || !response.data.choices[0] || !response.data.choices[0].message) {
-            console.error('无效的API响应格式:', response.data);
-            throw new Error('API返回了无效的响应格式');
         }
         
         // 提取响应内容

@@ -139,15 +139,27 @@ async function startReview() {
     progressBar.style.width = '0%';
     progressMessage.textContent = '准备开始...';
 
-    // 模拟进度
+    // 模拟进度 - 增加更长的模拟时间
     let progress = 0;
     const progressTimer = setInterval(() => {
-        if (progress < 90) {
-            progress += Math.random() * 2;
+        // 将最大进度增加到95%，留出更多时间给长请求
+        if (progress < 95) {
+            // 减慢进度增加速度
+            progress += Math.random() * 1;
             progressBar.style.width = `${progress}%`;
-            progressMessage.textContent = '对照审查标准进行评估...';
+            
+            // 更新进度信息
+            if (progress < 30) {
+                progressMessage.textContent = '对照审查标准进行评估...';
+            } else if (progress < 60) {
+                progressMessage.textContent = '深度分析法律合规性...';
+            } else if (progress < 85) {
+                progressMessage.textContent = '生成修改建议...';
+            } else {
+                progressMessage.textContent = '文件处理接近完成，请稍候...';
+            }
         }
-    }, 1000);
+    }, 1500);
 
     try {
         // 创建FormData对象
@@ -157,24 +169,28 @@ async function startReview() {
         console.log('开始调用API: /api/review');
         console.time('API调用时间');
 
-        // 设置超时
+        // 设置超时 - 增加到5分钟
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 300000); // 5分钟超时
 
         let response;
         try {
-            // 调用后端API
+            // 调用后端API - 增加超时文本
+            progressMessage.textContent = '正在处理文件，请耐心等待(可能需要2-3分钟)...';
+            
             response = await fetch('/api/review', {
                 method: 'POST',
                 body: formData,
-                signal: controller.signal
+                signal: controller.signal,
+                // 不设置cache让每次请求都是新的
+                cache: 'no-store'
             });
         } catch (fetchError) {
             console.error('Fetch错误详情:', fetchError);
             let errorMsg = '连接服务器失败';
             
             if (fetchError.name === 'AbortError') {
-                errorMsg = '请求超时，请尝试上传较小的文件或稍后重试';
+                errorMsg = '请求超时，这可能是因为文件太大或服务器负载过高，请稍后再试';
             }
             throw new Error(errorMsg);
         } finally {
@@ -190,30 +206,41 @@ async function startReview() {
             let errorData;
             try {
                 const errorText = await response.text();
+                console.error('错误响应内容:', errorText.substring(0, 500));
                 try {
                     errorData = JSON.parse(errorText);
-                } catch {
+                } catch (jsonError) {
                     // 如果不是JSON，直接使用文本
-                    throw new Error(errorText);
+                    console.error('响应不是JSON格式');
+                    throw new Error(`服务器错误: ${errorText.substring(0, 100)}`);
                 }
             } catch (parseError) {
+                console.error('解析错误响应失败:', parseError);
                 throw new Error('服务器返回了无效的错误信息');
             }
             throw new Error(errorData.error || '审查请求失败');
         }
 
         // 读取成功响应
+        let responseText;
+        try {
+            // 首先克隆响应对象，以便可以多次读取
+            const responseClone = response.clone();
+            responseText = await response.text();
+            console.log('响应内容预览:', responseText.substring(0, 100) + '...');
+        } catch (readError) {
+            console.error('读取响应内容失败:', readError);
+            throw new Error('无法读取服务器响应');
+        }
+
+        // 尝试解析JSON
         let results;
         try {
-            const responseText = await response.text();
-            try {
-                results = JSON.parse(responseText);
-            } catch (parseError) {
-                console.error('响应内容:', responseText);
-                throw new Error('服务器返回的数据格式不正确');
-            }
-        } catch (error) {
-            throw new Error('无法读取服务器响应');
+            results = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error('解析JSON失败:', parseError);
+            console.error('无效的JSON响应:', responseText.substring(0, 500));
+            throw new Error('服务器返回的数据格式不正确');
         }
 
         // 验证结果格式
