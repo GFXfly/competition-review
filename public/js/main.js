@@ -178,15 +178,82 @@ async function startReview() {
     }, progressInterval);
     
     try {
+        // 先检查API服务是否可用
+        progressMessage.textContent = '检查API连接...';
+        
+        try {
+            // 简单的服务可用性检查
+            const healthCheck = await fetch('/api/health', { 
+                method: 'GET',
+                headers: { 'Accept': 'application/json' },
+                // 设置较短超时
+                signal: AbortSignal.timeout(5000)
+            }).catch(e => {
+                console.warn('健康检查API不存在，跳过检查:', e);
+                return { ok: true }; // 假设API可用，继续执行
+            });
+            
+            // 如果健康检查失败，抛出错误
+            if (healthCheck && !healthCheck.ok) {
+                throw new Error('API服务不可用，请稍后再试');
+            }
+        } catch (healthError) {
+            console.error('API健康检查失败:', healthError);
+            // 如果不是因为端点不存在，则抛出错误
+            if (!healthError.message.includes('健康检查API不存在')) {
+                throw healthError;
+            }
+        }
+        
         // 创建FormData对象
         const formData = new FormData();
         formData.append('file', currentFile);
         
+        // 更新UI
+        progressMessage.textContent = '发送文件到服务器...';
+        
+        console.log('开始调用API: /api/review');
+        console.time('API调用时间');
+        
+        // 设置超时
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 120秒超时
+        
         // 调用后端API
         const response = await fetch('/api/review', {
             method: 'POST',
-            body: formData
+            body: formData,
+            signal: controller.signal
+        }).catch(fetchError => {
+            console.error('Fetch错误详情:', fetchError);
+            
+            // 构建更详细的错误信息
+            let errorMsg = 'API请求失败';
+            
+            if (fetchError.name === 'AbortError') {
+                errorMsg = '请求超时，服务器响应时间过长';
+            } else if (fetchError.message) {
+                errorMsg = fetchError.message;
+            }
+            
+            // 网络错误或CORS错误通常会在这里捕获
+            if (fetchError.name === 'TypeError' && fetchError.message === 'Failed to fetch') {
+                errorMsg = 'API连接失败，请检查网络连接或服务器状态';
+                
+                // 添加环境信息
+                const isVercel = window.location.hostname.includes('vercel.app');
+                if (isVercel) {
+                    errorMsg += ' (Vercel环境)';
+                }
+            }
+            
+            throw new Error(errorMsg);
+        }).finally(() => {
+            clearTimeout(timeoutId); // 清除超时计时器
         });
+        
+        console.timeEnd('API调用时间');
+        console.log('API响应状态:', response.status);
         
         // 改进错误处理，处理非JSON响应
         let errorMessage = '';
@@ -240,6 +307,11 @@ async function startReview() {
         clearInterval(progressTimer);
         progressBar.style.width = '0%';
         progressMessage.textContent = '审查失败: ' + error.message;
+        
+        // 记录更详细的错误信息
+        if (error.stack) {
+            console.error('错误堆栈:', error.stack);
+        }
         
         // 显示错误提示
         alert('审查过程中出错: ' + error.message);

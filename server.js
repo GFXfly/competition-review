@@ -25,7 +25,11 @@ const port = process.env.PORT || 3000;
 // 中间件
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+app.use(cors({
+    origin: '*', // 在开发阶段可以设为'*'
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 安全中间件
@@ -67,6 +71,21 @@ const upload = multer({
 // 路由
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// 添加健康检查API
+app.get('/api/health', (req, res) => {
+    // 检查环境变量
+    const hasApiKey = !!process.env.SILICONFLOW_API_KEY;
+    
+    // 返回服务器健康状态
+    res.json({
+        status: 'ok',
+        serverTime: new Date().toISOString(),
+        env: process.env.NODE_ENV || 'development',
+        apiKey: hasApiKey ? '已配置' : '未配置',
+        version: '2.3.1'
+    });
 });
 
 // 文件上传和审查接口
