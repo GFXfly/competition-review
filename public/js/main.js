@@ -188,13 +188,34 @@ async function startReview() {
             body: formData
         });
         
+        // 改进错误处理，处理非JSON响应
+        let errorMessage = '';
+        let results;
+        
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || '审查请求失败');
+            try {
+                // 尝试解析错误响应为JSON
+                const errorData = await response.json();
+                errorMessage = errorData.error || errorData.message || '审查请求失败';
+            } catch (jsonError) {
+                // 如果JSON解析失败，尝试读取为文本
+                const textError = await response.text();
+                console.error('API返回非JSON格式错误:', textError);
+                errorMessage = `服务器响应错误 (${response.status}): ${
+                    textError.substring(0, 100) || '未知错误'
+                }`;
+            }
+            throw new Error(errorMessage);
         }
         
-        const results = await response.json();
-        console.log('收到审查结果:', results);
+        // 尝试解析响应为JSON
+        try {
+            results = await response.json();
+            console.log('收到审查结果:', results);
+        } catch (jsonError) {
+            console.error('解析API响应失败:', jsonError);
+            throw new Error('服务器返回的数据格式不正确，无法解析为JSON');
+        }
         
         // 验证API结果格式
         if (!results.issues || !Array.isArray(results.issues)) {

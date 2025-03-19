@@ -182,7 +182,7 @@ async function extractTextFromFile(file) {
 // 调用DeepSeek API进行审查
 async function performReview(req) {
     // 添加这一行标识当前代码版本
-    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.1 - Vercel优化版');
+    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.2 - Vercel优化版');
     
     try {
         console.log('开始文件审查过程');
@@ -266,17 +266,86 @@ ${fileContent}`;
         console.log(`使用的API密钥前缀: ${apiKey.substring(0, 5)}...`);
         console.log(`使用的模型: ${requestBody.model}`);
         
-        // 发送请求
-        const startTime = Date.now();
-        const response = await axios.post(apiUrl, requestBody, { headers });
-        const endTime = Date.now();
+        let response;
+        try {
+            // 发送请求
+            const startTime = Date.now();
+            response = await axios.post(apiUrl, requestBody, { 
+                headers,
+                // 添加超时设置，避免请求挂起太久
+                timeout: 120000,
+                // 不自动验证状态码，我们将手动处理
+                validateStatus: null
+            });
+            const endTime = Date.now();
+            
+            console.log(`API响应时间: ${endTime - startTime}ms`);
+            console.log('API响应状态:', response.status);
+        } catch (error) {
+            // 处理请求错误
+            console.error('请求API时发生错误:', error.message);
+            
+            let detailedError = '调用API失败';
+            
+            if (error.response) {
+                // 服务器返回了错误状态码
+                console.error('API错误详情:', {
+                    status: error.response.status,
+                    statusText: error.response.statusText,
+                    data: error.response.data
+                });
+                
+                // 格式化错误消息
+                detailedError += `: ${error.response.status} - `;
+                
+                if (typeof error.response.data === 'string') {
+                    detailedError += error.response.data.substring(0, 100);
+                } else if (typeof error.response.data === 'object' && error.response.data !== null) {
+                    detailedError += JSON.stringify(error.response.data).substring(0, 100);
+                } else {
+                    detailedError += error.response.statusText || '未知错误';
+                }
+            } else if (error.request) {
+                // 请求已发出但没有收到响应
+                console.error('未收到API响应:', error.request);
+                detailedError += ': 请求超时或无响应';
+            } else {
+                // 设置请求时发生了错误
+                console.error('API请求配置错误:', error.message);
+                detailedError += `: ${error.message}`;
+            }
+            
+            throw new Error(detailedError);
+        }
         
-        console.log(`API响应时间: ${endTime - startTime}ms`);
-        console.log('API响应状态:', response.status);
+        // 检查响应状态
+        if (!response || response.status !== 200) {
+            // 记录详细错误信息
+            console.error('API响应错误:', {
+                status: response ? response.status : 'unknown',
+                statusText: response ? response.statusText : 'unknown',
+                data: response ? response.data : 'no response'
+            });
+            
+            // 格式化错误消息
+            let errorMsg = `API错误: ${response ? response.status : 'unknown'}`;
+            
+            // 尝试从响应中提取错误信息
+            if (response && response.data) {
+                if (typeof response.data === 'string') {
+                    errorMsg += ' - ' + response.data.substring(0, 100);
+                } else if (typeof response.data === 'object') {
+                    errorMsg += ' - ' + (response.data.error || response.data.message || JSON.stringify(response.data).substring(0, 100));
+                }
+            }
+            
+            throw new Error(errorMsg);
+        }
         
-        if (response.status !== 200) {
-            console.error('API响应错误:', response.data);
-            throw new Error(`API错误: ${response.status} ${JSON.stringify(response.data)}`);
+        // 确保响应包含所需字段
+        if (!response.data || !response.data.choices || !response.data.choices[0] || !response.data.choices[0].message) {
+            console.error('无效的API响应格式:', response.data);
+            throw new Error('API返回了无效的响应格式');
         }
         
         // 提取响应内容
@@ -373,19 +442,8 @@ ${fileContent}`;
         
         return result;
     } catch (error) {
-        console.error('调用API时出错:', error);
-        
-        // 尝试获取更多错误信息
-        if (error.response) {
-            console.error('API错误详情:', {
-                status: error.response.status,
-                statusText: error.response.statusText,
-                data: error.response.data
-            });
-        }
-        
-        // 重新抛出错误，让上层处理
-        throw new Error(`API调用失败: ${error.message}`);
+        console.error('处理审查过程中出错:', error);
+        throw error;
     }
 }
 
