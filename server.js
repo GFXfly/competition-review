@@ -182,7 +182,7 @@ async function extractTextFromFile(file) {
 // 调用DeepSeek API进行审查
 async function performReview(req) {
     // 添加这一行标识当前代码版本
-    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.2 - Vercel优化版');
+    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.3 - Vercel增强版');
     
     try {
         console.log('开始文件审查过程');
@@ -192,11 +192,26 @@ async function performReview(req) {
         console.log(`提取的文件内容长度: ${fileContent.length} 字符`);
         console.log(`文件内容预览: ${fileContent.substring(0, 100)}...`);
         
-        const apiKey = process.env.SILICONFLOW_API_KEY || 'sk-ndqddvkvqsfrvirhauqtrjejiwfawokxzakscpieqelbuhik';
+        // 检查环境变量
+        console.log('检查API环境变量...');
+        console.log('NODE_ENV:', process.env.NODE_ENV);
+        console.log('是否存在API密钥环境变量:', process.env.SILICONFLOW_API_KEY ? '是' : '否');
+        
+        // 获取API密钥 - 确保不用过期密钥
+        let apiKey;
+        if (process.env.SILICONFLOW_API_KEY) {
+            apiKey = process.env.SILICONFLOW_API_KEY;
+            console.log('使用环境变量中的API密钥');
+        } else {
+            // 注意：此处使用的是默认密钥，可能需要更新
+            apiKey = 'sk-ndqddvkvqsfrvirhauqtrjejiwfawokxzakscpieqelbuhik';
+            console.log('警告：使用默认API密钥，这可能在生产环境中不起作用');
+        }
+        
         // 修改API URL为硅基流动地址
         const apiUrl = 'https://api.siliconflow.cn/v1/chat/completions';
         
-        // 提示词更加明确
+        // 请保留系统提示词内容...
         const systemPrompt = `你是一个专业的公平竞争审查专家，负责审查文件中可能存在的限制竞争问题，并给出专业修改建议。
 
 你需要基于以下标准审查文件：
@@ -243,9 +258,20 @@ ${fileContent}`;
 
         console.log('构建API请求...');
         
+        // 尝试不同的模型
+        const models = [
+            "Pro/deepseek-ai/DeepSeek-R1",
+            "Pro/Qwen/Qwen2.5-7B-Instruct",
+            "Pro/01-ai/Yi-VL-34B"
+        ];
+        
+        console.log('可用模型列表:', models.join(', '));
+        const modelToUse = global.availableModel || models[0];
+        console.log(`选择模型: ${modelToUse}`);
+        
         // 构建请求体
         const requestBody = {
-            model: "Pro/deepseek-ai/DeepSeek-R1",  // 使用DeepSeek R1模型
+            model: modelToUse,
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt }
@@ -262,9 +288,18 @@ ${fileContent}`;
             'Authorization': `Bearer ${apiKey}`
         };
         
-        console.log('发送请求到硅基流动DeepSeek-R1 API...');
+        // 打印完整请求信息(删除敏感信息)
+        const debugRequestBody = JSON.parse(JSON.stringify(requestBody));
+        debugRequestBody.messages[1].content = '内容已省略...';
+        console.log('请求体:', JSON.stringify(debugRequestBody, null, 2));
+        console.log('请求头:', {
+            'Content-Type': headers['Content-Type'],
+            'Authorization': 'Bearer sk-***' // 隐藏实际API密钥
+        });
+        
+        console.log('发送请求到硅基流动API...');
         console.log(`使用的API密钥前缀: ${apiKey.substring(0, 5)}...`);
-        console.log(`使用的模型: ${requestBody.model}`);
+        console.log(`使用的模型: ${modelToUse}`);
         
         let response;
         try {
@@ -281,9 +316,23 @@ ${fileContent}`;
             
             console.log(`API响应时间: ${endTime - startTime}ms`);
             console.log('API响应状态:', response.status);
+            console.log('API响应内容类型:', response.headers ? response.headers['content-type'] : 'unknown');
         } catch (error) {
             // 处理请求错误
             console.error('请求API时发生错误:', error.message);
+            
+            // 添加更详细的网络错误信息
+            if (error.code) {
+                console.error('网络错误代码:', error.code);
+            }
+            
+            if (error.config) {
+                console.error('请求配置:', {
+                    url: error.config.url,
+                    method: error.config.method,
+                    timeout: error.config.timeout
+                });
+            }
             
             let detailedError = '调用API失败';
             
@@ -292,6 +341,7 @@ ${fileContent}`;
                 console.error('API错误详情:', {
                     status: error.response.status,
                     statusText: error.response.statusText,
+                    headers: error.response.headers,
                     data: error.response.data
                 });
                 
@@ -307,7 +357,7 @@ ${fileContent}`;
                 }
             } else if (error.request) {
                 // 请求已发出但没有收到响应
-                console.error('未收到API响应:', error.request);
+                console.error('未收到API响应:', error.request._currentUrl || '无URL信息');
                 detailedError += ': 请求超时或无响应';
             } else {
                 // 设置请求时发生了错误
