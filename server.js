@@ -40,22 +40,7 @@ app.use((req, res, next) => {
 });
 
 // 配置文件上传
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, 'uploads');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir);
-        }
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        // 使用时间戳和随机字符串生成文件名，避免文件名冲突
-        const timestamp = Date.now();
-        const randomString = Math.random().toString(36).substring(2, 15);
-        const ext = path.extname(file.originalname);
-        cb(null, `${timestamp}-${randomString}${ext}`);
-    }
-});
+const storage = multer.memoryStorage(); // 使用内存存储代替磁盘存储
 
 const fileFilter = (req, file, cb) => {
     const allowedTypes = [
@@ -110,22 +95,16 @@ app.post('/api/review', upload.single('file'), async (req, res) => {
             });
         }
         
-        // 删除临时文件
-        fs.unlinkSync(req.file.path);
+        // 使用内存存储后无需删除文件
+        // 之前的fs.unlinkSync(req.file.path)代码已移除
         
         // 返回审查结果
         res.json(reviewResults);
     } catch (error) {
         console.error('审查过程中出错:', error);
         
-        // 如果文件存在，删除临时文件
-        if (req.file && fs.existsSync(req.file.path)) {
-            try {
-                fs.unlinkSync(req.file.path);
-            } catch (unlinkError) {
-                console.error('删除临时文件失败:', unlinkError);
-            }
-        }
+        // 使用内存存储后无需删除文件
+        // 之前的删除文件代码已移除
         
         // 返回友好的错误信息
         const statusCode = error.statusCode || 500;
@@ -168,55 +147,28 @@ app.post('/api/generate-report', async (req, res) => {
     }
 });
 
-// 清理过期文件的定时任务
-setInterval(() => {
-    try {
-        const uploadDir = path.join(__dirname, 'uploads');
-        if (fs.existsSync(uploadDir)) {
-            const files = fs.readdirSync(uploadDir);
-            const now = Date.now();
-            
-            files.forEach(file => {
-                // 跳过.gitkeep文件
-                if (file === '.gitkeep') return;
-                
-                const filePath = path.join(uploadDir, file);
-                const stats = fs.statSync(filePath);
-                const fileAge = now - stats.mtimeMs;
-                
-                // 删除超过1小时的文件
-                if (fileAge > 60 * 60 * 1000) {
-                    fs.unlinkSync(filePath);
-                    console.log(`已删除过期文件: ${file}`);
-                }
-            });
-        }
-    } catch (error) {
-        console.error('清理过期文件时出错:', error);
-    }
-}, 30 * 60 * 1000); // 每30分钟执行一次
-
-// 从文件中提取文本
+// 从文件中提取文本 - 修改为处理内存中的文件
 async function extractTextFromFile(file) {
-    const filePath = file.path;
+    // 文件扩展名检测
     const fileExt = path.extname(file.originalname).toLowerCase();
     
     try {
         switch (fileExt) {
             case '.docx':
-                // 使用mammoth从Word文档中提取文本
-                const result = await mammoth.extractRawText({ path: filePath });
+                // 使用mammoth从内存中的Word文档提取文本
+                const result = await mammoth.extractRawText({ 
+                    buffer: file.buffer // 使用buffer而非文件路径
+                });
                 return result.value;
                 
             case '.pdf':
-                // 使用pdf-parse从PDF中提取文本
-                const dataBuffer = fs.readFileSync(filePath);
-                const pdfData = await pdfParse(dataBuffer);
+                // 使用pdf-parse从内存中的PDF提取文本
+                const pdfData = await pdfParse(file.buffer); // 直接使用buffer
                 return pdfData.text;
                 
             case '.txt':
-                // 直接读取文本文件
-                return fs.readFileSync(filePath, 'utf8');
+                // 直接返回buffer内容
+                return file.buffer.toString('utf8');
                 
             default:
                 throw createError(400, '不支持的文件类型');
@@ -230,7 +182,7 @@ async function extractTextFromFile(file) {
 // 调用DeepSeek API进行审查
 async function performReview(req) {
     // 添加这一行标识当前代码版本
-    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.0');
+    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.1 - Vercel优化版');
     
     try {
         console.log('开始文件审查过程');
