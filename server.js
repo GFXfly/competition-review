@@ -1,212 +1,50 @@
-/**
- * 公平竞争审查在线工具
- * 服务器端代码
- */
-
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const axios = require('axios');
-const mammoth = require('mammoth');
-const pdfParse = require('pdf-parse');
-const docx = require('docx');
-const cors = require('cors');
-const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, BorderStyle } = docx;
-const dotenv = require('dotenv');
+const pdf = require('pdf-parse');
+const fs = require('fs').promises;
 const timeout = require('connect-timeout');
 
-// 加载环境变量
-dotenv.config();
-
-// 创建Express应用
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 增加超时设置
-app.use(timeout('300s')); // 设置5分钟超时
-app.use(haltOnTimedout);
+// 设置静态文件目录
+app.use(express.static('public'));
 
-// 中间件
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cors({
-    origin: '*', // 在开发阶段可以设为'*'
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true
-}));
-app.use(express.static(path.join(__dirname, 'public')));
-
-// 安全中间件
-app.use((req, res, next) => {
-    // 设置安全相关的HTTP头
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:; font-src 'self' https://cdn.jsdelivr.net;");
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-    next();
-});
+// 设置全局超时
+app.use(timeout('180s'));
 
 // 配置文件上传
-const storage = multer.memoryStorage(); // 使用内存存储代替磁盘存储
-
-const fileFilter = (req, file, cb) => {
-    const allowedTypes = [
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-        'application/pdf', // .pdf
-        'text/plain' // .txt
-    ];
-    
-    if (allowedTypes.includes(file.mimetype)) {
-        cb(null, true);
-    } else {
-        cb(new Error('不支持的文件类型'), false);
-    }
-};
-
+const storage = multer.memoryStorage();
 const upload = multer({
-    storage,
-    limits: { 
-        fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024 // 默认10MB
-    },
-    fileFilter
-});
-
-// 路由
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// 添加健康检查API
-app.get('/api/health', (req, res) => {
-    // 检查环境变量
-    const hasApiKey = !!process.env.SILICONFLOW_API_KEY;
-    
-    // 返回服务器健康状态
-    res.json({
-        status: 'ok',
-        serverTime: new Date().toISOString(),
-        env: process.env.NODE_ENV || 'development',
-        apiKey: hasApiKey ? '已配置' : '未配置',
-        version: '2.3.1'
-    });
-});
-
-// 文件上传和审查接口
-app.post('/api/review', upload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: '未上传文件' });
-        }
-
-        console.log('收到文件上传请求:', req.file.originalname);
-        
-        // 调用DeepSeek API进行审查
-        console.log('开始调用DeepSeek API进行审查');
-        let reviewResults;
-        try {
-            reviewResults = await performReview(req);
-            console.log('审查完成，结果:', JSON.stringify(reviewResults, null, 2));
-        } catch (apiError) {
-            console.error('API调用失败，详细错误:', apiError);
-            // 返回明确的错误，而不是默默地使用模拟数据
-            return res.status(500).json({ 
-                error: '调用API失败',
-                message: apiError.message,
-                // 直接返回一个空结果，而不是模拟数据
-                results: { totalIssues: 0, issues: [], error: true }
-            });
-        }
-        
-        // 使用内存存储后无需删除文件
-        // 之前的fs.unlinkSync(req.file.path)代码已移除
-        
-        // 返回审查结果
-        res.json(reviewResults);
-    } catch (error) {
-        console.error('审查过程中出错:', error);
-        
-        // 使用内存存储后无需删除文件
-        // 之前的删除文件代码已移除
-        
-        // 返回友好的错误信息
-        const statusCode = error.statusCode || 500;
-        const errorMessage = error.message || '服务器内部错误';
-        
-        res.status(statusCode).json({ error: errorMessage });
+    storage: storage,
+    limits: {
+        fileSize: 50 * 1024 * 1024 // 限制50MB
     }
 });
 
-// 生成报告接口
-app.post('/api/generate-report', async (req, res) => {
-    try {
-        const { fileName, reviewResults } = req.body;
-        
-        if (!reviewResults || !reviewResults.issues || !Array.isArray(reviewResults.issues)) {
-            return res.status(400).json({ error: '缺少有效的审查结果数据' });
-        }
-        
-        // 验证文件名
-        const sanitizedFileName = sanitizeFileName(fileName || '未命名文件');
-        
-        // 生成Word文档
-        const doc = generateWordReport(sanitizedFileName, reviewResults);
-        const buffer = await Packer.toBuffer(doc);
-        
-        // 设置响应头
-        res.setHeader('Content-Disposition', `attachment; filename="公平竞争审查报告_${new Date().toISOString().slice(0, 10)}.docx"`);
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        
-        // 发送文档
-        res.send(buffer);
-    } catch (error) {
-        console.error('生成报告时出错:', error);
-        
-        // 返回友好的错误信息
-        const statusCode = error.statusCode || 500;
-        const errorMessage = error.message || '服务器内部错误';
-        
-        res.status(statusCode).json({ error: errorMessage });
-    }
-});
-
-// 从文件中提取文本 - 修改为处理内存中的文件
+// 提取文本内容
 async function extractTextFromFile(file) {
-    // 文件扩展名检测
-    const fileExt = path.extname(file.originalname).toLowerCase();
-    
     try {
-        switch (fileExt) {
-            case '.docx':
-                // 使用mammoth从内存中的Word文档提取文本
-                const result = await mammoth.extractRawText({ 
-                    buffer: file.buffer // 使用buffer而非文件路径
-                });
-                return result.value;
-                
-            case '.pdf':
-                // 使用pdf-parse从内存中的PDF提取文本
-                const pdfData = await pdfParse(file.buffer); // 直接使用buffer
-                return pdfData.text;
-                
-            case '.txt':
-                // 直接返回buffer内容
-                return file.buffer.toString('utf8');
-                
-            default:
-                throw createError(400, '不支持的文件类型');
+        if (file.mimetype === 'application/pdf') {
+            const data = await pdf(file.buffer);
+            return data.text;
+        } else if (file.mimetype === 'text/plain') {
+            return file.buffer.toString('utf8');
+        } else {
+            throw new Error('不支持的文件类型');
         }
     } catch (error) {
         console.error('提取文本时出错:', error);
-        throw createError(500, `提取文本时出错: ${error.message}`);
+        throw error;
     }
 }
 
 // 调用DeepSeek API进行审查
 async function performReview(req) {
     // 添加这一行标识当前代码版本
-    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.3.2 - 增强型错误处理');
+    console.log('【版本标识】使用硅基流动DeepSeek-R1接口 v2.3.3 - 超强型错误处理');
     
     try {
         console.log('开始文件审查过程');
@@ -337,23 +175,55 @@ ${fileContent}`;
                 validateStatus: function (status) {
                     // 允许处理所有状态码
                     return true;
-                }
+                },
+                // 添加响应转换器确保总是返回JSON
+                transformResponse: [function(data, headers) {
+                    // 检查内容类型
+                    const contentType = headers['content-type'] || '';
+                    
+                    // 记录原始响应
+                    console.log('API响应内容类型:', contentType);
+                    console.log('API响应长度:', data ? data.length : 0);
+                    
+                    if (contentType.includes('application/json')) {
+                        // 如果是JSON，尝试解析
+                        try {
+                            return JSON.parse(data);
+                        } catch (e) {
+                            console.error('JSON解析失败:', e);
+                            console.error('响应内容预览:', data?.substring(0, 200));
+                            // 返回格式化的错误对象
+                            return {
+                                error: true, 
+                                message: '服务器返回了无效的JSON格式',
+                                raw: data?.substring(0, 1000) || null
+                            };
+                        }
+                    } else {
+                        // 如果不是JSON，返回格式化的错误对象
+                        console.error('非JSON响应:', contentType);
+                        console.error('响应内容预览:', data?.substring(0, 200));
+                        return {
+                            error: true,
+                            message: `服务器返回了非JSON格式: ${contentType}`,
+                            raw: data?.substring(0, 1000) || null
+                        };
+                    }
+                }]
             });
             const endTime = Date.now();
             
             console.log(`API响应时间: ${endTime - startTime}ms`);
             console.log('API响应状态:', response.status);
-            console.log('API响应内容类型:', response.headers['content-type']);
             
             // 检查状态码，如果不是2xx，抛出异常
             if (response.status < 200 || response.status >= 300) {
                 let errorMessage = `API返回了错误状态码: ${response.status}`;
                 
-                // 尝试解析响应内容获取更多错误信息
+                // 格式化错误信息
                 if (response.data) {
-                    if (typeof response.data === 'string') {
-                        // 截取前200个字符以避免日志过长
-                        errorMessage += ` - ${response.data.substring(0, 200)}`;
+                    if (response.data.error) {
+                        errorMessage = response.data.message || response.data.error;
                     } else if (typeof response.data === 'object') {
                         errorMessage += ` - ${JSON.stringify(response.data).substring(0, 200)}`;
                     }
@@ -362,12 +232,10 @@ ${fileContent}`;
                 throw new Error(errorMessage);
             }
             
-            // 检查内容类型
-            const contentType = response.headers['content-type'] || '';
-            if (!contentType.includes('application/json')) {
-                console.error('非预期的响应类型:', contentType);
-                console.error('响应内容预览:', typeof response.data === 'string' ? response.data.substring(0, 200) : '非文本内容');
-                throw new Error(`API返回了非JSON格式: ${contentType}`);
+            // 检查响应数据中是否包含error标志
+            if (response.data && response.data.error === true) {
+                console.error('API响应包含错误标志:', response.data);
+                throw new Error(response.data.message || '服务器返回了错误响应');
             }
             
             // 确保响应包含所需字段
@@ -402,22 +270,20 @@ ${fileContent}`;
                     headers: error.response.headers,
                 });
                 
-                // 记录响应内容，可能是HTML或其他格式
-                if (typeof error.response.data === 'string') {
-                    console.error('响应内容预览:', error.response.data.substring(0, 500));
-                } else if (typeof error.response.data === 'object' && error.response.data !== null) {
-                    console.error('响应对象:', JSON.stringify(error.response.data).substring(0, 500));
-                }
-                
-                // 格式化错误消息
-                detailedError += `: ${error.response.status} - `;
-                
-                if (typeof error.response.data === 'string') {
-                    detailedError += error.response.data.substring(0, 100);
-                } else if (typeof error.response.data === 'object' && error.response.data !== null) {
-                    detailedError += JSON.stringify(error.response.data).substring(0, 100);
-                } else {
-                    detailedError += error.response.statusText || '未知错误';
+                // 记录响应内容
+                if (error.response.data) {
+                    if (error.response.data.error) {
+                        console.error('错误响应对象:', error.response.data);
+                        detailedError = error.response.data.message || '服务器返回了错误响应';
+                    } else if (typeof error.response.data === 'string') {
+                        console.error('响应内容预览:', error.response.data.substring(0, 500));
+                        detailedError += `: ${error.response.data.substring(0, 100).replace(/<[^>]*>/g, '')}`;
+                    } else if (typeof error.response.data === 'object' && error.response.data !== null) {
+                        console.error('响应对象:', JSON.stringify(error.response.data).substring(0, 500));
+                        detailedError += `: ${JSON.stringify(error.response.data).substring(0, 100)}`;
+                    } else {
+                        detailedError += `: ${error.response.statusText || '未知错误'}`;
+                    }
                 }
             } else if (error.request) {
                 // 请求已发出但没有收到响应
@@ -527,303 +393,55 @@ ${fileContent}`;
         return result;
     } catch (error) {
         console.error('处理审查过程中出错:', error);
-        throw error;
+        // 确保返回标准化的JSON错误格式
+        throw {
+            statusCode: 500,
+            message: error.message || '服务器内部错误',
+            error: true
+        };
     }
 }
 
-// 获取模拟审查结果
-function getMockReviewResults() {
-    console.log('警告：尝试使用模拟数据！这不应该发生。');
-    return {
-        totalIssues: 1,
-        issues: [
-            {
-                title: "模拟数据警告",
-                description: "系统正在使用模拟数据，这表明API调用失败",
-                quote: "这是一个明显的模拟数据响应，用于调试",
-                suggestion: "请检查服务器日志以了解API调用失败的原因"
-            }
-        ]
-    };
-}
-
-// 生成Word报告
-function generateWordReport(fileName, reviewResults) {
-    // 创建新文档
-    const doc = new Document({
-        sections: [{
-            properties: {},
-            children: [
-                // 标题
-                new Paragraph({
-                    text: "公平竞争审查报告",
-                    heading: HeadingLevel.HEADING_1,
-                    alignment: docx.AlignmentType.CENTER,
-                    spacing: { after: 200 }
-                }),
-                
-                // 基本信息
-                new Paragraph({
-                    text: "基本信息",
-                    heading: HeadingLevel.HEADING_2,
-                    spacing: { before: 200, after: 100 }
-                }),
-                new Paragraph({
-                    children: [
-                        new TextRun("审查文件: "),
-                        new TextRun({
-                            text: fileName || "未命名文件",
-                            bold: true
-                        })
-                    ],
-                    spacing: { after: 100 }
-                }),
-                new Paragraph({
-                    children: [
-                        new TextRun("审查时间: "),
-                        new TextRun({
-                            text: new Date().toLocaleString('zh-CN'),
-                            bold: true
-                        })
-                    ],
-                    spacing: { after: 100 }
-                }),
-                new Paragraph({
-                    children: [
-                        new TextRun("问题数量: "),
-                        new TextRun({
-                            text: reviewResults.totalIssues.toString(),
-                            bold: true
-                        })
-                    ],
-                    spacing: { after: 200 }
-                }),
-                
-                // 审查结果
-                new Paragraph({
-                    text: "审查结果",
-                    heading: HeadingLevel.HEADING_2,
-                    spacing: { before: 200, after: 100 }
-                })
-            ]
-        }]
-    });
-    
-    // 添加每个问题
-    reviewResults.issues.forEach((issue, index) => {
-        // 问题标题
-        doc.addParagraph(
-            new Paragraph({
-                text: `问题 ${index + 1}: ${issue.title}`,
-                heading: HeadingLevel.HEADING_3,
-                spacing: { before: 200, after: 100 }
-            })
-        );
-        
-        // 问题描述
-        doc.addParagraph(
-            new Paragraph({
-                children: [
-                    new TextRun({
-                        text: "问题描述: ",
-                        bold: true
-                    }),
-                    new TextRun(issue.description)
-                ],
-                spacing: { after: 100 }
-            })
-        );
-        
-        // 原文引用
-        doc.addParagraph(
-            new Paragraph({
-                children: [
-                    new TextRun({
-                        text: "原文引用: ",
-                        bold: true
-                    })
-                ],
-                spacing: { after: 50 }
-            })
-        );
-        
-        doc.addParagraph(
-            new Paragraph({
-                text: issue.quote,
-                indent: { left: 600 },
-                spacing: { after: 100 }
-            })
-        );
-        
-        // 修改建议
-        doc.addParagraph(
-            new Paragraph({
-                children: [
-                    new TextRun({
-                        text: "修改建议: ",
-                        bold: true
-                    }),
-                    new TextRun(issue.suggestion)
-                ],
-                spacing: { after: 200 }
-            })
-        );
-    });
-    
-    // 添加结论
-    doc.addParagraph(
-        new Paragraph({
-            text: "结论与建议",
-            heading: HeadingLevel.HEADING_2,
-            spacing: { before: 200, after: 100 }
-        })
-    );
-    
-    doc.addParagraph(
-        new Paragraph({
-            text: `经审查，该文件共发现 ${reviewResults.totalIssues} 处可能存在的公平竞争问题。建议按照上述修改意见进行调整，确保文件符合公平竞争审查制度要求。`,
-            spacing: { after: 100 }
-        })
-    );
-    
-    return doc;
-}
-
-// 创建错误对象
-function createError(statusCode, message) {
-    const error = new Error(message);
-    error.statusCode = statusCode;
-    return error;
-}
-
-// 清理文件名
-function sanitizeFileName(fileName) {
-    // 移除不安全的字符
-    return fileName.replace(/[\/\?<>\\:\*\|"]/g, '_');
-}
-
-// 超时处理中间件
-function haltOnTimedout(req, res, next) {
-    if (!req.timedout) next();
-}
-
-// 错误处理中间件
-app.use((err, req, res, next) => {
-    console.error('服务器错误:', err);
-    if (err.timeout) {
-        return res.status(504).json({
-            error: '请求处理超时，请尝试上传较小的文件或稍后重试'
-        });
-    }
-    res.status(500).json({
-        error: err.message || '服务器内部错误'
-    });
+// 健康检查接口
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', version: '2.3.3' });
 });
 
-// 处理404错误
-app.use((req, res) => {
-    res.status(404).json({ error: '请求的资源不存在' });
-});
-
-// 测试DeepSeek API连接
-async function testDeepSeekAPI() {
-    console.log('测试硅基流动DeepSeek API连接...');
-    
+// 处理文件上传和审查
+app.post('/review', upload.single('file'), async (req, res) => {
     try {
-        const apiKey = process.env.SILICONFLOW_API_KEY || 'sk-ndqddvkvqsfrvirhauqtrjejiwfawokxzakscpieqelbuhik';
-        console.log(`使用的API密钥前缀: ${apiKey.substring(0, 5)}...`);
-        
-        // 设置模型列表优先尝试DeepSeek-R1
-        const models = [
-            "Pro/deepseek-ai/DeepSeek-R1",
-            "Pro/Qwen/Qwen2.5-7B-Instruct",
-            "Pro/Qwen/Qwen2.5-32B-Instruct",
-            "Pro/Qwen/Qwen2.5-72B-Instruct"
-        ];
-        
-        console.log('使用默认模型列表进行测试');
-        let availableModel = null;
-        
-        // 依次测试模型
-        for (const model of models) {
-            console.log(`测试模型: ${model}...`);
-            
-            const requestBody = {
-                model: model,
-                messages: [
-                    { role: "system", content: "你是一个帮助用户的助手。" },
-                    { role: "user", content: "测试: 请回复'API连接正常'" }
-                ],
-                temperature: 0.5,
-                max_tokens: 50,
-                stream: false
-            };
-            
-            const headers = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            };
-            
-            try {
-                // 发送测试请求
-                const response = await axios.post('https://api.siliconflow.cn/v1/chat/completions', requestBody, { headers });
-                
-                console.log(`模型 ${model} 测试成功! 状态码: ${response.status}`);
-                
-                // 检查是否支持思维链
-                const hasReasoningContent = response.data.choices[0].message.reasoning_content ? true : false;
-                console.log(`模型返回思维链: ${hasReasoningContent ? '是' : '否'}`);
-                
-                availableModel = model;
-                break; // 找到一个工作的模型就停止测试
-            } catch (modelError) {
-                console.error(`模型 ${model} 测试失败: ${modelError.message}`);
-                if (modelError.response) {
-                    console.error(`错误代码: ${modelError.response.status}, 消息: ${JSON.stringify(modelError.response.data)}`);
-                }
-                // 继续尝试下一个模型
-                continue;
-            }
+        if (!req.file) {
+            throw new Error('未上传文件');
         }
         
-        if (availableModel) {
-            console.log(`API连接测试成功! 可用模型: ${availableModel}`);
-            console.log(`已将 ${availableModel} 设置为全局可用模型`);
-            // 这里可以设置全局变量或保存到环境中供后续使用
-            global.availableModel = availableModel;
-            return { success: true, model: availableModel };
-        } else {
-            console.error('所有模型测试均失败');
-            return { success: false, error: '无可用模型' };
+        // 检查文件类型
+        if (!['application/pdf', 'text/plain'].includes(req.file.mimetype)) {
+            throw new Error('不支持的文件类型，仅支持PDF和TXT文件');
         }
         
+        const result = await performReview(req);
+        res.json(result);
     } catch (error) {
-        console.error('API测试失败:', error.message);
+        console.error('处理请求时出错:', error);
         
-        if (error.response) {
-            console.error('测试错误详情:', {
-                status: error.response.status,
-                statusText: error.response.statusText,
-                data: error.response.data
-            });
-        }
+        // 确保返回标准化的错误响应
+        const statusCode = error.statusCode || 500;
+        const errorResponse = {
+            error: true,
+            message: error.message || '服务器内部错误',
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        };
         
-        return { success: false, error: error.message };
+        res.status(statusCode).json(errorResponse);
     }
-}
+});
 
-// 应用启动时测试API连接
-app.listen(port, async () => {
-    console.log(`服务器运行在 http://localhost:${port}`);
-    
-    // 启动时测试API连接
-    const apiTestResult = await testDeepSeekAPI();
-    console.log(`API测试结果: ${apiTestResult.success ? '成功' : '失败'}`);
-    
-    if (apiTestResult.success) {
-        console.log(`设置全局可用模型为: ${apiTestResult.model}`);
-    } else {
-        console.warn(`API连接测试失败: ${apiTestResult.error}`);
-        console.warn('将使用默认模型进行后续请求');
-    }
-}); 
+// 启动服务器
+app.listen(port, () => {
+    console.log(`服务器运行在端口 ${port}`);
+    console.log('环境变量:', {
+        NODE_ENV: process.env.NODE_ENV || 'development',
+        PORT: port,
+        API_KEY: process.env.SILICONFLOW_API_KEY ? '已设置' : '未设置'
+    });
+});
