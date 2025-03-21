@@ -1,79 +1,254 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('uploadForm');
-    const fileInput = document.getElementById('fileInput');
-    const submitButton = document.getElementById('submitButton');
+    // 修正元素选择器，匹配HTML中的ID
+    const uploadBtn = document.getElementById('upload-btn');
+    const fileUpload = document.getElementById('file-upload');
+    const reviewBtn = document.getElementById('review-btn');
+    const uploadArea = document.getElementById('upload-area');
+    const fileInfo = document.getElementById('file-info');
+    const fileName = document.getElementById('file-name');
+    const fileSize = document.getElementById('file-size');
+    const removeFile = document.getElementById('remove-file');
     const loadingElement = document.getElementById('loading');
-    const progressBar = document.getElementById('progressBar');
-    const progressText = document.getElementById('progressText');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.querySelector('.progress-message');
+    const reviewResults = document.getElementById('review-results');
+    const issuesContainer = document.getElementById('issues-container');
+    const issueCount = document.getElementById('issue-count');
+    const exportBtn = document.getElementById('export-btn');
+    const newReviewBtn = document.getElementById('new-review-btn');
     
-    // 错误显示函数
-    function displayError(message) {
-        // 隐藏加载状态
-        loadingElement.style.display = 'none';
-        
-        // 创建错误消息元素
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-message';
-        errorDiv.innerHTML = `
-            <div class="error-icon">❌</div>
-            <div class="error-text">
-                <strong>审查过程中出错</strong><br>
-                ${message}
-            </div>
-        `;
-        
-        // 将错误消息插入到loading元素后面
-        loadingElement.parentNode.insertBefore(errorDiv, loadingElement.nextSibling);
-        
-        // 8秒后淡出并移除错误消息
-        setTimeout(() => {
-            errorDiv.style.opacity = '0';
-            setTimeout(() => {
-                errorDiv.remove();
-            }, 500);
-        }, 8000);
-        
-        // 重置进度条
-        progressBar.style.width = '0%';
-        progressText.textContent = '审查失败';
-        
-        // 重置按钮状态
-        submitButton.disabled = false;
-        fileInput.disabled = false;
-    }
-
-    function updateProgress(progress) {
-        progressBar.style.width = `${progress}%`;
-        if (progress === 100) {
-            progressText.textContent = '审查完成！';
-        } else {
-            progressText.textContent = `正在处理... ${progress}%`;
+    // 当前选择的文件
+    let currentFile = null;
+    // 当前结果中的问题
+    let currentIssues = [];
+    
+    // 添加上传按钮点击事件
+    uploadBtn.addEventListener('click', function() {
+        fileUpload.click();
+    });
+    
+    // 添加文件选择事件
+    fileUpload.addEventListener('change', function(e) {
+        if (this.files.length > 0) {
+            handleFileSelection(this.files[0]);
         }
-    }
-
-    async function startReview(formData) {
+    });
+    
+    // 添加拖放功能
+    uploadArea.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.add('border-primary');
+    });
+    
+    uploadArea.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.remove('border-primary');
+    });
+    
+    uploadArea.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.remove('border-primary');
+        
+        if (e.dataTransfer.files.length > 0) {
+            handleFileSelection(e.dataTransfer.files[0]);
+        }
+    });
+    
+    // 移除所选文件
+    removeFile.addEventListener('click', function() {
+        resetFileSelection();
+    });
+    
+    // 开始审查
+    reviewBtn.addEventListener('click', function() {
+        if (currentFile) {
+            startReview();
+        }
+    });
+    
+    // 重新审查
+    newReviewBtn.addEventListener('click', function() {
+        resetFileSelection();
+        reviewResults.classList.add('d-none');
+        uploadArea.classList.remove('d-none');
+    });
+    
+    // 导出报告
+    exportBtn.addEventListener('click', async function() {
         try {
-            // 显示准备信息
-            progressText.textContent = '准备开始审查...';
+            // 禁用导出按钮并显示加载状态
+            this.disabled = true;
+            const originalText = this.innerHTML;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>导出中...';
+            
+            // 获取当前文件名
+            const currentFileName = currentFile ? currentFile.name : '未命名文件';
+            
+            // 调试日志
+            console.log('====== 导出调试信息 ======');
+            console.log('文件名:', currentFileName);
+            console.log('问题数量:', currentIssues ? currentIssues.length : 0);
+            console.log('问题数据结构:', JSON.stringify(currentIssues, null, 2));
+            
+            // 如果issues为空数组，创建一个虚拟的问题
+            const issuesToSend = currentIssues && currentIssues.length > 0 ? currentIssues : [{
+                id: 1,
+                title: '审查结果',
+                description: '未发现公平竞争问题',
+                quote: '',
+                violation: '',
+                suggestion: '文件符合公平竞争要求，无需修改。'
+            }];
+            
+            console.log('发送的请求数据:', JSON.stringify({
+                fileName: currentFileName,
+                issues: issuesToSend
+            }, null, 2));
+            
+            // 发送导出请求
+            const response = await fetch('/export', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    fileName: currentFileName,
+                    issues: issuesToSend
+                })
+            });
+            
+            console.log('服务器响应状态:', response.status);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('服务器错误响应:', errorText);
+                throw new Error(`导出失败: ${response.status} - ${errorText}`);
+            }
+            
+            // 获取Blob数据
+            const blob = await response.blob();
+            console.log('收到Blob响应，MIME类型:', blob.type, '大小:', blob.size);
+            
+            // 创建下载链接
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentFileName.replace(/\.[^/.]+$/, '')}_审查报告.docx`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            // 恢复按钮状态
+            this.disabled = false;
+            this.innerHTML = originalText;
+            
+        } catch (error) {
+            console.error('导出报告时出错:', error);
+            alert(`导出报告失败: ${error.message}`);
+            
+            // 恢复按钮状态
+            this.disabled = false;
+            this.innerHTML = originalText;
+        }
+    });
+    
+    // 处理文件选择
+    function handleFileSelection(file) {
+        // 检查文件类型
+        const allowedTypes = ['application/pdf', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        if (!allowedTypes.includes(file.type)) {
+            alert('只支持 PDF、DOCX 和 TXT 文件');
+            return;
+        }
+        
+        // 检查文件大小（限制为50MB）
+        if (file.size > 50 * 1024 * 1024) {
+            alert('文件大小不能超过50MB');
+            return;
+        }
+        
+        // 保存当前文件
+        currentFile = file;
+        
+        // 显示文件信息
+        uploadArea.classList.add('d-none');
+        fileInfo.classList.remove('d-none');
+        fileName.textContent = file.name;
+        fileSize.textContent = `文件大小: ${formatFileSize(file.size)}`;
+        
+        // 启用审查按钮
+        reviewBtn.disabled = false;
+    }
+    
+    // 重置文件选择
+    function resetFileSelection() {
+        currentFile = null;
+        currentIssues = [];
+        fileUpload.value = '';
+        fileInfo.classList.add('d-none');
+        uploadArea.classList.remove('d-none');
+        reviewBtn.disabled = true;
+    }
+    
+    // 格式化文件大小
+    function formatFileSize(bytes) {
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        if (bytes === 0) return '0 Bytes';
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    // 开始审查过程
+    async function startReview() {
+        try {
+            // 禁用界面元素
+            reviewBtn.disabled = true;
+            reviewBtn.textContent = "处理中...";
+            reviewBtn.classList.add('btn-apple-processing');
+            fileInfo.classList.add('d-none');
+            
+            // 显示加载状态
+            loadingElement.classList.remove('d-none');
             progressBar.style.width = '0%';
+            progressText.textContent = '准备开始审查...';
             
             // 模拟进度，最多到95%
             let progress = 0;
-            const progressInterval = setInterval(() => {
-                if (progress < 95) {
-                    progress += 0.5; // 减慢进度增加速度
-                    updateProgress(progress);
+            const progressMax = 95;
+            const progressStep = 0.3;
+            let increment = progressStep;
+            
+            const progressTimer = setInterval(() => {
+                // 根据进度动态调整增量
+                if (progress > 30) increment = progressStep * 0.8; // 30%后慢一些
+                if (progress > 60) increment = progressStep * 0.5; // 60%后更慢
+                if (progress > 85) increment = progressStep * 0.3; // 85%后非常慢
+                if (progress > 90) increment = progressStep * 0.1; // 90%后几乎不动
+                
+                // 快结束时增加速度，模拟请求即将完成
+                if (progress >= 90 && progress < 92) increment = progressStep * 1.2; // 接近结束再快一些
+                
+                if (progress < progressMax) {
+                    progress += increment;
+                    progressBar.style.width = `${progress}%`;
+                    progressText.textContent = `正在处理... ${Math.round(progress)}%`;
                 }
-            }, 300); // 增加间隔时间
+            }, 300);
             
-            // 设置超时
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5分钟超时
-            
-            // 提示用户文件处理可能需要一些时间
-            progressText.textContent = '正在处理文件，可能需要2-3分钟...';
+            // 创建FormData对象
+            const formData = new FormData();
+            formData.append('file', currentFile);
             
             try {
+                // 设置超时 - 5分钟
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 300000);
+                
                 const response = await fetch('/review', {
                     method: 'POST',
                     body: formData,
@@ -84,167 +259,89 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // 检查响应状态
                 if (!response.ok) {
-                    // 尝试解析错误响应
-                    let errorMessage;
-                    try {
-                        const errorData = await response.json();
-                        errorMessage = errorData.message || '服务器返回了错误状态码';
-                        console.error('服务器错误详情:', errorData);
-                    } catch (e) {
-                        errorMessage = `服务器返回了错误状态码: ${response.status}`;
-                        console.error('无法解析错误响应:', e);
-                    }
-                    throw new Error(errorMessage);
-                }
-                
-                // 确保响应是JSON格式
-                const contentType = response.headers.get('content-type');
-                if (!contentType || !contentType.includes('application/json')) {
-                    console.error('非预期的响应类型:', contentType);
-                    throw new Error('服务器返回了非JSON格式的响应');
+                    throw new Error(`服务器返回了错误状态码: ${response.status}`);
                 }
                 
                 // 解析响应
                 const result = await response.json();
                 
-                // 检查响应格式
-                if (!result || typeof result !== 'object') {
-                    console.error('无效的响应格式:', result);
-                    throw new Error('服务器返回了无效的响应格式');
-                }
-                
-                // 检查是否有错误标志
-                if (result.error === true) {
-                    throw new Error(result.message || '服务器返回了错误响应');
-                }
-                
                 // 停止进度模拟
-                clearInterval(progressInterval);
+                clearInterval(progressTimer);
+                progressBar.style.width = '100%';
+                progressText.textContent = '审查完成!';
                 
-                // 显示100%进度
-                updateProgress(100);
+                // 保存当前问题
+                currentIssues = result.issues || [];
                 
-                // 处理审查结果
-                displayResults(result);
+                // 短暂延迟后显示结果
+                setTimeout(() => {
+                    // 隐藏加载状态
+                    loadingElement.classList.add('d-none');
+                    
+                    // 更新问题数量
+                    issueCount.textContent = result.totalIssues || 0;
+                    
+                    // 处理问题列表
+                    displayIssues(currentIssues);
+                    
+                    // 显示结果
+                    reviewResults.classList.remove('d-none');
+                }, 500);
+                
             } catch (error) {
-                clearInterval(progressInterval);
+                clearInterval(progressTimer);
                 
-                if (error.name === 'AbortError') {
-                    throw new Error('请求超时，请稍后重试');
-                } else {
-                    throw error;
-                }
+                // 显示错误信息
+                console.error('审查过程中出错:', error);
+                loadingElement.classList.add('d-none');
+                alert(`审查过程中出错: ${error.message}`);
+                
+                // 恢复界面状态
+                reviewBtn.disabled = false;
+                reviewBtn.textContent = "开始审查";
+                reviewBtn.classList.remove('btn-apple-processing');
+                fileInfo.classList.remove('d-none');
             }
         } catch (error) {
-            console.error('审查过程中出错:', error);
-            displayError(error.message || '处理文件时发生错误');
+            console.error('启动审查过程中出错:', error);
+            alert(`启动审查过程中出错: ${error.message}`);
         }
     }
-
-    function displayResults(result) {
-        // 隐藏加载状态
-        loadingElement.style.display = 'none';
+    
+    // 显示问题列表
+    function displayIssues(issues) {
+        // 清空容器
+        issuesContainer.innerHTML = '';
         
-        // 创建结果容器
-        const resultsDiv = document.createElement('div');
-        resultsDiv.className = 'results-container';
-        
-        // 添加文件信息
-        resultsDiv.innerHTML = `
-            <div class="file-info">
-                <h3>文件信息</h3>
-                <p>文件名：${result.fileName}</p>
-                <p>文件大小：${Math.round(result.fileSize / 1024)} KB</p>
-                <p>发现问题数：${result.totalIssues}</p>
-            </div>
-        `;
-        
-        // 如果有问题，显示问题列表
-        if (result.issues && result.issues.length > 0) {
-            const issuesDiv = document.createElement('div');
-            issuesDiv.className = 'issues-list';
-            
-            result.issues.forEach(issue => {
-                const issueElement = document.createElement('div');
-                issueElement.className = 'issue-item';
-                issueElement.innerHTML = `
-                    <h4>${issue.title}</h4>
-                    ${issue.description ? `<div class="issue-description"><strong>问题描述：</strong>${issue.description}</div>` : ''}
-                    ${issue.quote ? `<div class="issue-quote"><strong>原文引用：</strong>"${issue.quote}"</div>` : ''}
-                    ${issue.violation ? `<div class="issue-violation"><strong>违反条款：</strong>${issue.violation}</div>` : ''}
-                    ${issue.suggestion ? `<div class="issue-suggestion"><strong>修改建议：</strong>${issue.suggestion}</div>` : ''}
-                `;
-                issuesDiv.appendChild(issueElement);
-            });
-            
-            resultsDiv.appendChild(issuesDiv);
-        } else {
-            // 如果没有问题，显示通过信息
-            resultsDiv.innerHTML += `
-                <div class="no-issues">
-                    <h3>审查结果</h3>
-                    <p>未发现竞争限制问题，文件符合公平竞争要求。</p>
+        if (issues.length === 0) {
+            // 没有问题
+            issuesContainer.innerHTML = `
+                <div class="alert alert-success">
+                    <i class="bi bi-check-circle-fill me-2"></i>
+                    未发现竞争限制问题，文件符合公平竞争要求。
                 </div>
             `;
+            return;
         }
         
-        // 添加重新上传按钮
-        const resetButton = document.createElement('button');
-        resetButton.textContent = '重新上传';
-        resetButton.className = 'reset-button';
-        resetButton.onclick = function() {
-            resultsDiv.remove();
-            form.reset();
-            submitButton.disabled = false;
-            fileInput.disabled = false;
-        };
-        resultsDiv.appendChild(resetButton);
-        
-        // 将结果添加到页面
-        document.body.appendChild(resultsDiv);
+        // 添加每个问题
+        issues.forEach((issue, index) => {
+            const issueElement = document.createElement('div');
+            issueElement.className = 'issue-card-apple';
+            
+            issueElement.innerHTML = `
+                <div class="issue-header-apple">
+                    <h3 class="h5 mb-0 title-apple">问题 ${index + 1}: ${issue.title || '未命名问题'}</h3>
+                </div>
+                <div class="issue-body-apple">
+                    ${issue.description ? `<div class="mb-3"><strong>问题描述:</strong> ${issue.description}</div>` : ''}
+                    ${issue.quote ? `<div class="quote-apple mb-3">${issue.quote}</div>` : ''}
+                    ${issue.violation ? `<div class="mb-3"><strong>违反条款:</strong> ${issue.violation}</div>` : ''}
+                    ${issue.suggestion ? `<div class="suggestion-apple">${issue.suggestion}</div>` : ''}
+                </div>
+            `;
+            
+            issuesContainer.appendChild(issueElement);
+        });
     }
-
-    form.onsubmit = async function(e) {
-        e.preventDefault();
-        
-        const file = fileInput.files[0];
-        if (!file) {
-            alert('请选择要上传的文件');
-            return;
-        }
-        
-        // 检查文件类型
-        if (!['application/pdf', 'text/plain'].includes(file.type)) {
-            alert('只支持PDF和TXT文件');
-            return;
-        }
-        
-        // 检查文件大小（限制为50MB）
-        if (file.size > 50 * 1024 * 1024) {
-            alert('文件大小不能超过50MB');
-            return;
-        }
-        
-        // 禁用表单
-        submitButton.disabled = true;
-        fileInput.disabled = true;
-        
-        // 显示加载状态
-        loadingElement.style.display = 'block';
-        progressBar.style.width = '0%';
-        progressText.textContent = '开始处理...';
-        
-        // 移除之前的结果（如果有）
-        const previousResults = document.querySelector('.results-container');
-        if (previousResults) {
-            previousResults.remove();
-        }
-        
-        // 创建FormData对象
-        const formData = new FormData();
-        formData.append('file', file);
-        
-        // 开始审查过程
-        await startReview(formData);
-    };
 });

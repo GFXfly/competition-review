@@ -1,10 +1,12 @@
 const express = require('express');
 const multer = require('multer');
-const path = require('path');
-const axios = require('axios');
 const pdf = require('pdf-parse');
+const mammoth = require('mammoth');
+const { Document, Paragraph, TextRun, HeadingLevel, Packer, AlignmentType } = require('docx');
+const path = require('path');
 const fs = require('fs').promises;
 const timeout = require('connect-timeout');
+const axios = require('axios');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -12,8 +14,12 @@ const port = process.env.PORT || 3000;
 // 设置静态文件目录
 app.use(express.static('public'));
 
+// 添加JSON解析中间件
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // 设置全局超时
-app.use(timeout('180s'));
+app.use(timeout('300s'));
 
 // 配置文件上传
 const storage = multer.memoryStorage();
@@ -30,6 +36,10 @@ async function extractTextFromFile(file) {
         if (file.mimetype === 'application/pdf') {
             const data = await pdf(file.buffer);
             return data.text;
+        } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+            // 使用mammoth处理DOCX文件
+            const result = await mammoth.extractRawText({ buffer: file.buffer });
+            return result.value;
         } else if (file.mimetype === 'text/plain') {
             return file.buffer.toString('utf8');
         } else {
@@ -415,8 +425,8 @@ app.post('/review', upload.single('file'), async (req, res) => {
         }
         
         // 检查文件类型
-        if (!['application/pdf', 'text/plain'].includes(req.file.mimetype)) {
-            throw new Error('不支持的文件类型，仅支持PDF和TXT文件');
+        if (!['application/pdf', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(req.file.mimetype)) {
+            throw new Error('不支持的文件类型，仅支持PDF、DOCX和TXT文件');
         }
         
         const result = await performReview(req);
@@ -433,6 +443,371 @@ app.post('/review', upload.single('file'), async (req, res) => {
         };
         
         res.status(statusCode).json(errorResponse);
+    }
+});
+
+// 修改导出路由
+app.post('/export', async (req, res) => {
+    try {
+        console.log('收到导出请求:', {
+            fileName: req.body.fileName,
+            issuesCount: req.body.issues?.length || 0
+        });
+
+        const { fileName, issues } = req.body;
+        
+        if (!fileName) {
+            console.error('导出请求缺少文件名');
+            return res.status(400).json({ error: '缺少文件名' });
+        }
+
+        if (!Array.isArray(issues)) {
+            console.error('导出请求中的issues不是数组:', issues);
+            return res.status(400).json({ error: '问题列表格式不正确' });
+        }
+
+        console.log('处理的issues数据样例:', JSON.stringify(issues.slice(0, 1), null, 2));
+
+        try {
+            // 创建Word文档
+            const doc = new Document({
+                styles: {
+                    paragraphStyles: [
+                        {
+                            id: "Title",
+                            name: "Title",
+                            basedOn: "Normal",
+                            next: "Normal",
+                            run: {
+                                size: 32,  // 小二号字体(16pt)
+                                font: "宋体",
+                                bold: true,
+                            },
+                            paragraph: {
+                                alignment: AlignmentType.CENTER,
+                                spacing: { line: 360, before: 240, after: 240 },
+                            },
+                        },
+                        {
+                            id: "Heading1",
+                            name: "Heading 1",
+                            basedOn: "Normal",
+                            next: "Normal",
+                            run: {
+                                size: 32,  // 小二号字体(16pt)
+                                font: "方正小标宋",
+                                bold: true,
+                            },
+                            paragraph: {
+                                alignment: AlignmentType.CENTER,
+                                spacing: { line: 360, before: 240, after: 240 },
+                            },
+                        },
+                        {
+                            id: "Heading3",
+                            name: "Heading 3",
+                            basedOn: "Normal",
+                            next: "Normal",
+                            run: {
+                                size: 28,  // 小三号字体(14pt)
+                                font: "宋体",
+                                bold: true,
+                            },
+                            paragraph: {
+                                spacing: { line: 360, before: 240, after: 120 },
+                            },
+                        },
+                        {
+                            id: "Normal",
+                            name: "Normal",
+                            run: {
+                                size: 28,  // 小三号字体(14pt)
+                                font: "宋体",
+                            },
+                            paragraph: {
+                                spacing: { line: 360, before: 0, after: 0 },
+                                indent: { firstLine: 560 },  // 首行缩进2字符
+                            },
+                        },
+                    ],
+                },
+                sections: [{
+                    properties: {
+                        page: {
+                            margin: {
+                                top: 1440,    // 1英寸
+                                right: 1440,  // 1英寸
+                                bottom: 1440, // 1英寸
+                                left: 1440,   // 1英寸
+                                header: 720,  // 0.5英寸
+                                footer: 720,  // 0.5英寸
+                                gutter: 0
+                            }
+                        }
+                    },
+                    children: [
+                        new Paragraph({
+                            text: `关于《${fileName.replace(/\.[^/.]+$/, '')}》的审查报告`,
+                            style: "Heading1",
+                        }),
+                        new Paragraph({
+                            children: [
+                                new TextRun({ 
+                                    text: "问题数量：", 
+                                    bold: true,
+                                    size: 28,  // 小三号字体(14pt)
+                                    font: "宋体"
+                                }),
+                                new TextRun({ 
+                                    text: issues.length.toString(),
+                                    size: 28,  // 小三号字体(14pt)
+                                    font: "宋体"
+                                }),
+                            ],
+                            spacing: {
+                                after: 240,
+                                line: 360
+                            }
+                        }),
+                    ].concat(
+                        // 使用更安全的方式处理issue数组
+                        issues.flatMap((issue, index) => {
+                            console.log(`处理问题 ${index + 1}`);
+                            const result = [];
+                            
+                            // 添加标题
+                            result.push(
+                                new Paragraph({
+                                    text: `问题 ${index + 1}: ${issue.title || '未命名问题'}`,
+                                    style: "Heading3"
+                                })
+                            );
+                            
+                            // 添加描述
+                            if (issue.description) {
+                                result.push(
+                                    new Paragraph({
+                                        text: issue.description,
+                                        spacing: {
+                                            before: 120,
+                                            after: 120,
+                                            line: 360
+                                        },
+                                        indent: {
+                                            firstLine: 560  // 首行缩进2字符
+                                        },
+                                        style: "Normal"
+                                    })
+                                );
+                            }
+                            
+                            // 添加原文引用标签（单独一段）
+                            if (issue.quote) {
+                                result.push(
+                                    new Paragraph({
+                                        children: [
+                                            new TextRun({ 
+                                                text: "原文引用：",
+                                                bold: true,
+                                                size: 28,  // 小三号字体(14pt)
+                                                font: "宋体"
+                                            })
+                                        ],
+                                        spacing: {
+                                            before: 120,
+                                            after: 0,
+                                            line: 360
+                                        },
+                                        indent: {
+                                            firstLine: 560  // 首行缩进2字符
+                                        },
+                                        border: {
+                                            left: {
+                                                color: "3B85FF",
+                                                space: 10,
+                                                value: "single",
+                                                size: 16
+                                            }
+                                        }
+                                    })
+                                );
+                            
+                                // 添加引用内容
+                                result.push(
+                                    new Paragraph({
+                                        children: [
+                                            new TextRun({ 
+                                                text: issue.quote,
+                                                italic: true,
+                                                size: 28,  // 小三号字体(14pt)
+                                                font: "宋体"
+                                            }),
+                                        ],
+                                        indent: { 
+                                            left: 720,  // 左侧缩进
+                                            firstLine: 560  // 首行缩进
+                                        },
+                                        spacing: {
+                                            before: 0,
+                                            after: 120,
+                                            line: 360
+                                        },
+                                        border: {
+                                            left: {
+                                                color: "3B85FF",
+                                                space: 10,
+                                                value: "single",
+                                                size: 16
+                                            }
+                                        }
+                                    })
+                                );
+                            }
+                            
+                            // 添加违反条款
+                            if (issue.violation) {
+                                result.push(
+                                    new Paragraph({
+                                        children: [
+                                            new TextRun({ 
+                                                text: "违反条款：", 
+                                                bold: true,
+                                                size: 28,  // 小三号字体(14pt)
+                                                font: "宋体"
+                                            }),
+                                            new TextRun({ 
+                                                text: issue.violation,
+                                                size: 28,  // 小三号字体(14pt)
+                                                font: "宋体"
+                                            }),
+                                        ],
+                                        spacing: {
+                                            before: 120,
+                                            after: 120,
+                                            line: 360
+                                        },
+                                        indent: {
+                                            firstLine: 560
+                                        }
+                                    })
+                                );
+                            }
+                            
+                            // 添加修改建议
+                            if (issue.suggestion) {
+                                result.push(
+                                    new Paragraph({
+                                        children: [
+                                            new TextRun({ 
+                                                text: "修改建议：", 
+                                                bold: true,
+                                                size: 28,  // 小三号字体(14pt)
+                                                font: "宋体"
+                                            })
+                                        ],
+                                        spacing: {
+                                            before: 120,
+                                            after: 0,
+                                            line: 360
+                                        },
+                                        indent: {
+                                            firstLine: 560
+                                        },
+                                        border: {
+                                            left: {
+                                                color: "00B050",
+                                                space: 10,
+                                                value: "single",
+                                                size: 16
+                                            }
+                                        }
+                                    })
+                                );
+                                
+                                // 添加建议内容
+                                result.push(
+                                    new Paragraph({
+                                        text: issue.suggestion,
+                                        spacing: {
+                                            before: 0,
+                                            after: 240,
+                                            line: 360
+                                        },
+                                        indent: {
+                                            left: 720,
+                                            firstLine: 560
+                                        },
+                                        border: {
+                                            left: {
+                                                color: "00B050",
+                                                space: 10,
+                                                value: "single",
+                                                size: 16
+                                            }
+                                        },
+                                        style: "Normal"
+                                    })
+                                );
+                            }
+                            
+                            return result;
+                        })
+                    ).concat([
+                        new Paragraph({
+                            text: "本报告由AI自动生成，仅供参考。",
+                            alignment: "center",
+                            spacing: {
+                                before: 480,
+                                after: 120,
+                                line: 360
+                            },
+                            run: {
+                                size: 28,  // 小三号字体(14pt)
+                                font: "宋体"
+                            }
+                        }),
+                        new Paragraph({
+                            text: `生成时间：${new Date().toLocaleString()}`,
+                            alignment: "center",
+                            spacing: {
+                                after: 240,
+                                line: 360
+                            },
+                            run: {
+                                size: 28,  // 小三号字体(14pt)
+                                font: "宋体"
+                            }
+                        }),
+                    ]),
+                }],
+            });
+
+            console.log('开始生成Word文档...');
+            
+            // 生成Word文档
+            const buffer = await Packer.toBuffer(doc);
+            console.log('Word文档生成成功，大小:', buffer.length, '字节');
+            
+            // 处理文件名
+            const safeFileName = encodeURIComponent(fileName.replace(/\.[^/.]+$/, '') + '_审查报告.docx');
+            
+            // 发送Word文档
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+            res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${safeFileName}`);
+            res.send(buffer);
+            console.log('文档发送成功');
+        } catch (docError) {
+            console.error('生成Word文档时出错:', docError);
+            console.error('文档错误堆栈:', docError.stack);
+            throw new Error(`Word文档生成失败: ${docError.message}`);
+        }
+    } catch (error) {
+        console.error('生成Word报告时出错:', error);
+        console.error('错误堆栈:', error.stack);
+        res.status(500).json({ 
+            error: '生成Word报告失败',
+            details: error.message
+        });
     }
 });
 
