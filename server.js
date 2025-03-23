@@ -812,11 +812,11 @@ app.post('/export', async (req, res) => {
 });
 
 // 启动服务器
-app.listen(port, () => {
-    console.log(`服务器运行在端口 ${port}`);
-    console.log('环境变量:', {
-        NODE_ENV: process.env.NODE_ENV || 'development',
-        PORT: port,
-        API_KEY: process.env.SILICONFLOW_API_KEY ? '已设置' : '未设置'
-    });
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`服务器运行在 http://localhost:${port}`);
+  });
+}
+
+// 为Vercel部署导出应用
+module.exports = app;
