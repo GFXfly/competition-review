@@ -1,6 +1,5 @@
 const express = require('express');
 const multer = require('multer');
-const pdf = require('pdf-parse');
 const mammoth = require('mammoth');
 const { Document, Paragraph, TextRun, HeadingLevel, Packer, AlignmentType, ShadingType } = require('docx');
 const path = require('path');
@@ -33,33 +32,15 @@ const upload = multer({
 // 提取文本内容
 async function extractTextFromFile(file) {
     try {
-        let rawText = '';
-        
-        if (file.mimetype === 'application/pdf') {
-            const data = await pdf(file.buffer);
-            rawText = data.text;
-        } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-            // 使用mammoth处理DOCX文件
+        // 移除PDF处理分支，只保留docx和txt
+        if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
             const result = await mammoth.extractRawText({ buffer: file.buffer });
-            rawText = result.value;
+            return result.value;
         } else if (file.mimetype === 'text/plain') {
-            rawText = file.buffer.toString('utf8');
+            return file.buffer.toString('utf-8');
         } else {
-            throw new Error('不支持的文件类型');
+            throw new Error(`不支持的文件类型: ${file.mimetype}`);
         }
-        
-        console.log('原始文本提取完成，开始预处理...');
-        
-        // 文本预处理 - 提高文档结构识别率
-        const processedText = preprocessText(rawText);
-        
-        console.log('文本预处理完成，预处理前后长度对比：', {
-            rawLength: rawText.length,
-            processedLength: processedText.length
-        });
-        
-        // 返回预处理后的文本
-        return processedText;
     } catch (error) {
         console.error('提取文本时出错:', error);
         throw error;
@@ -1157,45 +1138,7 @@ ${fileContent}`;
                 validateStatus: function (status) {
                     // 允许处理所有状态码
                     return true;
-                },
-                // 添加响应转换器确保总是返回JSON
-                transformResponse: [function(data, headers) {
-                    // 检查内容类型
-                    const contentType = headers['content-type'] || '';
-                    
-                    // 记录原始响应
-                    console.log('API响应内容类型:', contentType);
-                    console.log('API响应长度:', data ? data.length : 0);
-                    
-                    // 记录更多API响应信息用于调试
-                    console.log('API响应头部信息:', JSON.stringify(headers, null, 2));
-                    console.log('API响应内容预览:', data ? data.substring(0, 500) : 'No data');
-                    
-                    if (contentType.includes('application/json')) {
-                        // 如果是JSON，尝试解析
-                        try {
-                            return JSON.parse(data);
-                        } catch (e) {
-                            console.error('JSON解析失败:', e);
-                            console.error('响应内容预览:', data?.substring(0, 200));
-                            // 返回格式化的错误对象
-                            return {
-                                error: true, 
-                                message: '服务器返回了无效的JSON格式',
-                                raw: data?.substring(0, 1000) || null
-                            };
-                        }
-                    } else {
-                        // 如果不是JSON，返回格式化的错误对象
-                        console.error('非JSON响应:', contentType);
-                        console.error('响应内容预览:', data?.substring(0, 200));
-                        return {
-                            error: true,
-                            message: `服务器返回了非JSON格式: ${contentType}`,
-                            raw: data?.substring(0, 1000) || null
-                        };
-                    }
-                }]
+                }
             });
             const endTime = Date.now();
             
@@ -1213,6 +1156,11 @@ ${fileContent}`;
                     } else if (typeof response.data === 'object') {
                         errorMessage += ` - ${JSON.stringify(response.data).substring(0, 200)}`;
                     }
+                }
+                
+                // 如果是503错误，提供更友好的错误信息
+                if (response.status === 503) {
+                    errorMessage = "模型服务暂时不可用，请稍后再试";
                 }
                 
                 throw new Error(errorMessage);
@@ -1452,9 +1400,9 @@ app.post('/review', upload.single('file'), async (req, res) => {
             throw new Error('未上传文件');
         }
         
-        // 检查文件类型
-        if (!['application/pdf', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(req.file.mimetype)) {
-            throw new Error('不支持的文件类型，仅支持PDF、DOCX和TXT文件');
+        // 修改文件类型验证，移除PDF
+        if (!['text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(req.file.mimetype)) {
+            throw new Error('不支持的文件类型，仅支持DOCX和TXT文件');
         }
         
         const result = await performReview(req);

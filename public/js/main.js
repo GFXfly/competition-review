@@ -210,13 +210,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // 处理文件选择
     function handleFileSelection(file) {
         // 检查文件类型
-        const allowedTypes = ['application/pdf', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        const allowedTypes = ['text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
         const fileExt = file.name.split('.').pop().toLowerCase();
-        const allowedExtensions = ['pdf', 'txt', 'docx'];
+        const allowedExtensions = ['txt', 'docx'];
         
         // 同时检查MIME类型和文件扩展名
         if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExt)) {
-            alert('只支持 PDF、DOCX 和 TXT 文件');
+            alert('只支持 DOCX 和 TXT 文件');
             return;
         }
         
