@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="renderer" content="webkit">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <title>公平竞争审查在线工具</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css">
+    <!-- 预加载关键图标字体，确保首次加载时正确显示 -->
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/fonts/bootstrap-icons.woff2" as="font" type="font/woff2" crossorigin>
+    <style>
+        :root {
+            --apple-bg: #f5f5f7;
+            --apple-primary: #0071e3;
+            --apple-secondary: #86868b;
+            --apple-dark: #1d1d1f;
+            --apple-card-bg: #ffffff;
+            --apple-success: #35c759;
+            --apple-warning: #ff9f0a;
+            --apple-error: #ff3b30;
+            --apple-radius: 12px;
+            --apple-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--apple-bg);
+            color: var(--apple-dark);
+            line-height: 1.5;
+        }
+        
+        /* 确保图标在首次加载时正确显示 */
+        .bi::before {
+            display: inline-block;
+            font-family: bootstrap-icons !important;
+            font-style: normal;
+            font-weight: normal !important;
+            font-variant: normal;
+            text-transform: none;
+            line-height: 1;
+            vertical-align: -0.125em;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        .icon-apple {
+            color: var(--apple-primary);
+            display: inline-block; /* 确保图标正确显示 */
+        }
+        
+        .header-apple {
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 1px 0 rgba(0, 0, 0, 0.1);
+            padding: 1.2rem 0;
+        }
+        
+        .container-apple {
+            max-width: 960px;
+            padding: 0 2rem;
+        }
+        
+        .card-apple {
+            background: var(--apple-card-bg);
+            border-radius: var(--apple-radius);
+            border: none;
+            box-shadow: var(--apple-shadow);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .btn-apple-primary {
+            background-color: var(--apple-primary);
+            border: none;
+            color: white;
+            border-radius: 20px;
+            padding: 0.6rem 1.8rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-apple-primary:hover {
+            background-color: #0077ed;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .btn-apple-secondary {
+            background-color: #e8e8ed;
+            border: none;
+            color: var(--apple-dark);
+            border-radius: 20px;
+            padding: 0.6rem 1.8rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-apple-secondary:hover {
+            background-color: #d8d8df;
+            transform: translateY(-1px);
+        }
+        
+        .title-apple {
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+        
+        .subtitle-apple {
+            color: var(--apple-secondary);
+            font-weight: 400;
+        }
+        
+        .upload-area-apple {
+            border: 2px dashed #d2d2d7;
+            border-radius: var(--apple-radius);
+            background-color: rgba(0, 0, 0, 0.02);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .upload-area-apple:hover {
+            border-color: var(--apple-primary);
+            background-color: rgba(0, 113, 227, 0.05);
+        }
+        
+        .progress-apple {
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .progress-bar-apple {
+            background-color: var(--apple-primary);
+        }
+        
+        .issue-card-apple {
+            border-radius: var(--apple-radius);
+            border: none;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+            transition: transform 0.2s ease;
+        }
+        
+        .issue-card-apple:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        }
+        
+        .issue-header-apple {
+            background-color: rgba(255, 159, 10, 0.15);
+            padding: 1rem 1.5rem;
+            border: none;
+        }
+        
+        .issue-body-apple {
+            padding: 1.5rem;
+        }
+        
+        .quote-apple {
+            background-color: rgba(0, 0, 0, 0.03);
+            border-left: 3px solid var(--apple-primary);
+            border-radius: 4px;
+            padding: 1rem 1.5rem;
+            font-style: italic;
+            color: #555;
+        }
+        
+        .suggestion-apple {
+            background-color: rgba(53, 199, 89, 0.1);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            color: #2a7a48;
+        }
+        
+        .footer-apple {
+            background-color: #f5f5f7;
+            padding: 2rem 0;
+            color: var(--apple-secondary);
+        }
+        
+        /* 自定义模态弹窗样式 */
+        .custom-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+        }
+        
+        .modal-content {
+            background-color: white;
+            padding: 24px;
+            border-radius: 14px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            max-width: 360px;
+            width: 85%;
+            position: relative;
+            animation: modalAppear 0.3s ease;
+        }
+        
+        @keyframes modalAppear {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        
+        .modal-body {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .modal-body p {
+            margin: 0;
+            font-weight: 500;
+            font-size: 15px;
+            color: #1d1d1f;
+        }
+        
+        .modal-body .warning-icon {
+            color: #ff3b30;
+            font-size: 36px;
+            margin-bottom: 16px;
+            display: block;
+        }
+        
+        .modal-footer {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-cancel {
+            background-color: #f5f5f7;
+            border: none;
+            color: #1d1d1f;
+            border-radius: 18px;
+            padding: 8px 18px;
+            font-weight: 500;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-cancel:hover {
+            background-color: #e8e8ed;
+        }
+        
+        .btn-proceed {
+            background-color: #0071e3;
+            color: white;
+            border: none;
+            border-radius: 18px;
+            padding: 8px 18px;
+            font-weight: 500;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-proceed:hover {
+            background-color: #0077ed;
+            transform: translateY(-1px);
+        }
+        
+        /* 确保在结果显示时完全隐藏处理中状态 */
+        #review-results:not(.d-none) ~ #loading,
+        #review-results:not(.d-none) ~ div #loading,
+        #review-results:not(.d-none) ~ * #loading {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            position: absolute !important;
+            z-index: -1000 !important;
+        }
+        
+        /* 直接针对处理中按钮 */
+        .processing-button, 
+        button:contains("处理中"), 
+        button.btn-apple-processing, 
+        *[class*="process"], 
+        .progress-message:contains("处理中"),
+        [style*="处理中"] {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+        }
+        
+        /* 隐藏加载状态中的所有元素 */
+        #loading * {
+            transition: none !important;
+        }
+        
+        /* 只针对特定的处理中元素进行隐藏 */
+        .progress-message:contains("处理中") {
+            display: none !important;
+        }
+    </style>
+    <script>
+        function showSecurityWarning() {
+            // 显示确认对话框
+            if (confirm("重要提示：\n\n1. 确保上传的文件不包含敏感信息\n2. 审查必须符合相关法规要求\n\n您确定要继续上传吗？")) {
+                // 如果用户点击确定，则触发文件上传
+                document.getElementById('file-upload').click();
+            }
+        }
+    </script>
+</head>
+<body>
+    <header class="header-apple">
+        <div class="container container-apple">
+            <div class="d-flex justify-content-between align-items-center">
+                <h1 class="title-apple h4 mb-0">公平竞争审查在线工具</h1>
+                <div class="header-info">
+                    <span class="subtitle-apple">杭州市临安区公平竞争审查专用</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container container-apple my-5">
+        <div class="row">
+            <div class="col-md-10 mx-auto">
+                <div class="card-apple shadow-sm p-4 position-relative">
+                    <!-- 上传区域 -->
+                    <div id="upload-area" class="upload-area-apple text-center p-5 mb-4">
+                        <i class="bi bi-cloud-arrow-up display-1 icon-apple mb-3"></i>
+                        <h3 class="h5 mb-2">拖拽文件到此处或点击上传</h3>
+                        <p class="subtitle-apple">支持 .docx, .pdf, .txt 格式文件</p>
+                        <input type="file" id="file-upload" class="d-none" accept=".docx,.pdf,.txt">
+                        <button id="upload-btn" class="btn-apple-primary mt-3">选择文件</button>
+                    </div>
+                    
+                    <!-- 文件信息 -->
+                    <div id="file-info" class="mb-4 d-none">
+                        <div class="d-flex align-items-center p-3 bg-light rounded-3">
+                            <i class="bi bi-file-earmark-text fs-1 icon-apple me-3"></i>
+                            <div class="flex-grow-1">
+                                <h4 id="file-name" class="h6 mb-1">文件名称.docx</h4>
+                                <p id="file-size" class="subtitle-apple small mb-0">文件大小: 1.2MB</p>
+                            </div>
+                            <button id="remove-file" class="btn-close" aria-label="关闭"></button>
+                        </div>
+                    </div>
+                    
+                    <!-- 恢复审查按钮 -->
+                    <div class="text-center mb-5">
+                        <button id="review-btn" class="btn-apple-primary px-5 py-2" disabled>
+                            开始审查
+                        </button>
+                    </div>
+                    
+                    <!-- 审查结果 -->
+                    <div id="review-results" class="d-none">
+                        <div class="text-center mb-5">
+                            <h2 class="title-apple h3 mb-3">审查结果</h2>
+                            <div class="issue-count-container mb-4">
+                                发现 <span id="issue-count" class="fw-bold text-danger fs-4">0</span> 个问题
+                            </div>
+                        </div>
+                        
+                        <div id="issues-container" class="issues-list mb-5">
+                            <!-- 问题项将通过JS动态添加 -->
+                        </div>
+                        
+                        <div class="d-flex justify-content-center gap-3">
+                            <button id="export-btn" class="btn-apple-primary">
+                                <i class="bi bi-download me-2"></i>导出报告
+                            </button>
+                            <button id="new-review-btn" class="btn-apple-secondary">
+                                <i class="bi bi-arrow-repeat me-2"></i>重新审查
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 加载状态 - 修改结构，确保不与结果冲突 -->
+                    <div id="loading" class="d-none loading-container loading-hidden" style="display:none!important;">
+                        <div class="progress-container">
+                            <div class="progress progress-apple mb-3">
+                                <div id="progress-bar" class="progress-bar progress-bar-apple" role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <div class="progress-message text-center mb-3 subtitle-apple">准备开始审查...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer-apple">
+        <div class="container container-apple text-center">
+            <p class="mb-0">杭州市临安区市场监督管理局 &copy; 2025</p>
+        </div>
+    </footer>
+
+    <!-- 模板 -->
+    <template id="issue-template">
+        <div class="issue-card-apple">
+            <div class="issue-header-apple">
+                <h5 class="mb-0">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <span class="issue-title">问题标题</span>
+                </h5>
+            </div>
+            <div class="issue-body-apple">
+                <div class="mb-3">
+                    <h6 class="subtitle-apple mb-2">问题描述:</h6>
+                    <p class="issue-description">问题描述内容</p>
+                </div>
+                <div class="mb-3">
+                    <h6 class="subtitle-apple mb-2">原文引用:</h6>
+                    <blockquote class="issue-quote quote-apple">
+                        原文引用内容
+                    </blockquote>
+                </div>
+                <div>
+                    <h6 class="subtitle-apple mb-2">修改建议:</h6>
+                    <p class="issue-suggestion suggestion-apple">修改建议内容</p>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- 自定义安全警告弹窗 -->
+    <div class="custom-modal" id="security-modal">
+        <div class="modal-content">
+            <div class="modal-body">
+                <i class="bi bi-exclamation-circle-fill warning-icon"></i>
+                <p><strong>禁止上传涉密文档</strong></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" id="modal-cancel">取消</button>
+                <button class="btn-proceed" id="modal-proceed">继续上传</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="text/javascript" src="/js/main.js"></script>
+    <script>
+        // 提前加载并缓存图标
+        function preloadIcons() {
+            // 创建一个隐藏的div来预加载图标
+            const preloadDiv = document.createElement('div');
+            preloadDiv.style.position = 'absolute';
+            preloadDiv.style.width = '0';
+            preloadDiv.style.height = '0';
+            preloadDiv.style.overflow = 'hidden';
+            preloadDiv.style.opacity = '0';
+            
+            // 预加载常用图标
+            const iconsToPreload = [
+                'bi-cloud-arrow-up',
+                'bi-exclamation-circle-fill',
+                'bi-file-earmark-text',
+                'bi-download',
+                'bi-arrow-repeat',
+                'bi-exclamation-triangle'
+            ];
+            
+            iconsToPreload.forEach(iconClass => {
+                const icon = document.createElement('i');
+                icon.className = iconClass;
+                preloadDiv.appendChild(icon);
+            });
+            
+            document.body.appendChild(preloadDiv);
+            
+            // 5秒后移除预加载div
+            setTimeout(() => {
+                document.body.removeChild(preloadDiv);
+            }, 5000);
+        }
+        
+        // 自定义模态弹窗逻辑
+        document.addEventListener('DOMContentLoaded', function() {
+            // 预加载图标
+            preloadIcons();
+            
+            const uploadBtn = document.getElementById('upload-btn');
+            const fileUpload = document.getElementById('file-upload');
+            const securityModal = document.getElementById('security-modal');
+            const modalCancel = document.getElementById('modal-cancel');
+            const modalProceed = document.getElementById('modal-proceed');
+            
+            // 确保所有图标元素都正确初始化
+            document.querySelectorAll('.bi').forEach(icon => {
+                // 强制重绘图标
+                icon.style.display = 'inline-block';
+            });
+            
+            // 显示安全警告弹窗
+            uploadBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                securityModal.style.display = 'flex';
+            });
+            
+            // 取消按钮
+            modalCancel.addEventListener('click', function() {
+                securityModal.style.display = 'none';
+            });
+            
+            // 继续上传按钮
+            modalProceed.addEventListener('click', function() {
+                securityModal.style.display = 'none';
+                fileUpload.click();
+            });
+            
+            // 点击弹窗外部关闭
+            securityModal.addEventListener('click', function(e) {
+                if (e.target === securityModal) {
+                    securityModal.style.display = 'none';
+                }
+            });
+        });
+    </script>
+</body>
+</html> 

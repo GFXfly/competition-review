@@ -1,0 +1,12 @@
+node_modules/
+*.tar.gz
+*.gz
+*.zip
+uploads/
+backups/
+backup/
+.DS_Store
+*.log
+*.tar.gz
+*.tar.gz
+*.tar.gz

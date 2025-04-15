@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>测试警告弹窗</title>
+</head>
+<body>
+    <h1>测试警告弹窗</h1>
+    <input type="file" id="file-upload" style="display:none">
+    <button id="test-button" onclick="showWarning()">测试按钮</button>
+    
+    <script>
+        function showWarning() {
+            var message = "重要提示：\n\n1. 请确认您上传的文件不包含涉密内容。本系统不对涉密文件进行处理，如有涉密内容请勿上传！\n\n2. 本系统将基于《公平竞争审查条例实施办法》进行专业审查。";
+            
+            if(confirm(message)) {
+                document.getElementById('file-upload').click();
+            }
+        }
+    </script>
+</body>
+</html> 

@@ -1,0 +1,5 @@
+cd /var/www/html
+put server.js
+cd public/js
+put public/js/main.js
+bye

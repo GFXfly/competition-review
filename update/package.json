@@ -1,0 +1,36 @@
+{
+  "name": "fair-competition-review-tool",
+  "version": "1.0.0",
+  "description": "公平竞争审查在线工具 - 基层区县公平竞争审查专用",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "公平竞争",
+    "审查",
+    "DeepSeek",
+    "AI"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.8.4",
+    "connect-timeout": "^1.9.0",
+    "cors": "^2.8.5",
+    "docx": "^8.5.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.21.2",
+    "mammoth": "^1.9.0",
+    "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "vercel": "^41.4.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
